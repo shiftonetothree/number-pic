@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset="utf-8" />
+		<title></title>
+	</head>
+	<body>
+		<div id="gen">
+			<div>
+				<div><label>{{line_splited.length}}个编码</label><div></div><textarea class="code_list" v-model="text.line_list" placeholder="编码，换行分割"></textarea></div>
+				<div><label>图片</label><input class="pic_file" type="file" /></div>
+				<div><label>x坐标</label><input class="x" v-model="text.x" type="number" placeholder="x坐标"/></div>
+				<div><label>y坐标</label><input class="y" v-model="text.y" type="number" placeholder="y坐标"/></div>
+				<div><label>x轴重复个数</label><input class="x_num" v-model="text.x_num" type="number" placeholder="x轴重复个数"/></div>
+				<div><label>y轴重复个数</label><input class="y_num" v-model="text.y_num" type="number" placeholder="y轴重复个数"/></div>
+				<div><label>文字大小</label><input class="size" v-model="text.font_size" type="number" placeholder="文字大小"/></div>
+				<div><label>字体</label><input class="font" v-model="text.font" type="text" placeholder="字体"/></div>
+				<div><label>字体颜色</label><input class="color" v-model="text.font_color" type="text" placeholder="字体颜色"/></div>
+				<div><button v-on:click="start()">生成</button></div>
+				<div style="display: none;">{{auto_start}}</div>
+			</div>
+			<div style="display: none;"><canvas></canvas></div>
+			<img v-bind:src="data_url" />
+		</div>
+	</body>
+	<script src="js/jquery-2.2.4.min.js"></script>
+	<script src="js/vue.min.js" ></script>
+	<script src="js/util.js"></script>
+	<script>
+	
+		/*在图片指定位置绘制文字*/
+		function TextDrawer(){
+			
+			/*简单绘制文字*/
+			this.drawTextSimple = function(words,canvas, context, x, y, width, height, font_color, font_size,font) {
+				var pos = {
+					l:x,
+					t:y,
+					w:1000000,
+				}
+				var font = {
+					words:words,
+					width:width,
+					height:height,
+					font_color:font_color,
+					font_size:font_size,
+					font:font,
+				}
+				return this.drawText(canvas, context, pos,font);
+			}
+			
+			/* 绘制文字，自动换行，自动对齐 */
+			this.drawText = function(canvas, context, pos, obj) {
+				//设置文字颜色和字体
+				var font_size = ((obj.font_size / 100) * (obj.width / 100)) * obj.width;
+				context.save();
+				context.fillStyle = obj.font_color;
+				context.strokeStyle = obj.font_color;
+				if(obj.font==null||obj.font==""){
+					obj.font = "sans-serif";
+				}
+			
+				context.font = font_size + "px/" + font_size * parseFloat(GetQueryString("wr", 1)) + "px "+obj.font;
+			
+				//计算行高，dom和canvas中默认行高不一样
+				var line_height = font_size * parseFloat(GetQueryString("hr", 1));
+				//对宽度做一些微调，因为dom中文字占用的宽度和canvas中不一样
+				var w = pos.w * parseFloat(GetQueryString("wr", 1));
+			
+				if(GetQueryString("debug", "false") == "true") {
+					//绘制测试参考线
+					context.strokeStyle = "#000000";
+					context.strokeRect(pos.l, pos.t, w, (obj.height / 100) * obj.height);
+				}
+			
+				context.textBaseline = "ideographic"; //以字底为基准线
+				context.translate(0, line_height); //将当前坐标下调到字底
+			
+				//对起始高度做一些微调
+				//context.translate(0,line_height - font_size);
+			
+				//将文字按行分割
+				var lines = this.splitTextByLine(decodeURIComponent(obj.words), context, w);
+			
+				//按行渲染文本
+				for(var i = 0; i < lines.length; i++) {
+					//只渲染看得到的行
+					if(line_height * (i) > (obj.height / 100) * obj.height) {
+						break;
+					}
+					//渲染一行
+					context.fillText(lines[i], pos.l, pos.t);
+					//将坐标向下移动一行的位置
+					context.translate(0, line_height);
+				}
+				context.restore();
+			}
+			
+			//对文本按行分割
+			this.splitTextByLine = function(words, context, width) {
+				var lines = [];
+				var line = "";
+				var this_line_width = 0; //现在正在计算的行的宽度
+			
+				var pre_lines = words.split("\n"); //先用文本自带的换行符分割成多行
+			
+				for(var k = 0; k < pre_lines.length; k++) {
+					line = ""; //将行重置
+					this_line_width = 0;
+					for(var i = 0; i < pre_lines[k].length; i++) {
+						//逐个字符累加计算文字的总宽度
+						line = line + pre_lines[k][i];
+						this_line_width = context.measureText(line).width;
+						//如果有超过两个字，且宽度大于width，说明这个字是下一个行的第一个字
+						if(line.length > 1 && this_line_width > width) {
+							lines.push(line.substr(0, line.length - 1));
+							line = pre_lines[k][i]; //将当前位置的字作为下一行的开头
+							this_line_width = 0;
+						}
+					}
+					lines.push(line);
+				}
+			
+				return lines;
+			}
+		}
+		var gen = new Vue({
+			el: '#gen',
+			data: {
+				selector:'#gen',
+				text:{
+					line_list:"",
+					x:0,
+					y:0,
+					font_size:1,
+					font:"",
+					trigger:"off",
+					font_color:"#000000",
+					x_num:2,
+					y_num:2,
+				},
+				text_drawer:new TextDrawer(),
+				pic_img:null,
+				data_url:"",
+			},
+			methods:{
+			  	start:function(){
+			  		if(this.pic_img==null){
+			  			return JSON.stringify(this.text);
+			  		}
+			  		this.text.trigger = "off";
+			  		var canvas = $(this.selector + " canvas")[0];
+			  		var context = canvas.getContext('2d');
+			  		canvas.width = this.pic_img.width*this.text.x_num;
+			  		canvas.height = this.pic_img.height*this.text.y_num;
+			  		
+			  		var line_index = 0;
+			  		
+			  		
+			  		for(var y=0;y<this.text.y_num;y++){
+			  			for(var x=0;x<this.text.x_num;x++){
+			  				context.drawImage(
+			  					this.pic_img,
+			  					0,
+			  					0,
+			  					this.pic_img.width,
+			  					this.pic_img.height,
+			  					x*this.pic_img.width,
+			  					y*this.pic_img.height,
+			  					this.pic_img.width,
+			  					this.pic_img.height
+			  				);
+			  				this.text_drawer.drawTextSimple(
+			  					this.line_splited[line_index],
+			  					canvas,
+			  					context,
+			  					x*this.pic_img.width+parseFloat(this.text.x),
+			  					y*this.pic_img.height+parseFloat(this.text.y),
+			  					this.pic_img.width,
+			  					this.pic_img.height,
+			  					this.text.font_color,
+			  					this.text.font_size,
+			  					this.text.font
+			  				);
+			  				line_index++;
+			  			}
+			  		}
+			  		this.data_url = canvas.toDataURL();
+			  		return JSON.stringify(this.text);
+			  	}
+			},
+			computed:{
+				auto_start:function(){
+					if(this.text.x_num < 3 && this.text.y_num < 3){
+						return this.start();
+					}
+					return JSON.stringify(this.text);
+				},
+				line_splited:function(){
+					return this.text.line_list.split("\n");
+				}
+			}
+		})
+		
+		$("#gen .pic_file").on("change",
+			function() {
+				var files = this.files;
+				if(files != null && files.length > 0) {
+					//删除老图片
+					var img = new Image();
+					img.src = createURL(files[0]);
+					img.onload = function(){
+						gen.pic_img = img;
+					}
+					
+				}
+				this.value = '';
+			}
+		);
+		
+		
+
+	</script>
+</html>
